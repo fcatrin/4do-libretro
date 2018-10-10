@@ -550,9 +550,10 @@ void
 check_option_4do_active_devices(void)
 {
   int rv;
+  unsigned int port;
   struct retro_variable var;
 
-  ACTIVE_DEVICES = 0;
+  ACTIVE_DEVICES = 1;
 
   var.key = "4do_active_devices";
   var.value = NULL;
@@ -563,6 +564,9 @@ check_option_4do_active_devices(void)
 
   if(ACTIVE_DEVICES > LR_INPUT_MAX_DEVICES)
     ACTIVE_DEVICES = 1;
+
+  for(port = 0; port < ACTIVE_DEVICES; port++)
+    retro_set_controller_port_device(port, RETRO_DEVICE_JOYPAD);
 }
 
 static
