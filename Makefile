@@ -1,6 +1,7 @@
 DEBUG = 0
 HAVE_CHD = 1
 THREADED_DSP=0
+HAVE_CDROM = 0
 
 ifeq ($(platform),)
 platform = unix
@@ -55,6 +56,7 @@ ifneq (,$(findstring unix,$(platform)))
     fpic := -fPIC
     SHARED := -lpthread -lm -shared -Wl,--no-undefined -Wl,--version-script=link.T
     THREADED_DSP = 1
+	 HAVE_CDROM = 1
 
     # Raspberry Pi
     ifneq (,$(findstring rpi,$(platform)))
@@ -86,6 +88,47 @@ ifneq (,$(findstring unix,$(platform)))
             CFLAGS += -mtune=cortex-a9
         endif
     endif
+
+# Classic Platforms ####################
+# Platform affix = classic_<ISA>_<µARCH>
+# Help at https://modmyclassic.com/comp
+
+# (armv7 a7, hard point, neon based) ### 
+# NESC, SNESC, C64 mini 
+else ifeq ($(platform), classic_armv7_a7)
+	TARGET := $(TARGET_NAME)_libretro.so
+	fpic := -fPIC
+	SHARED := -lpthread -lm -shared -Wl,--no-undefined -Wl,--version-script=link.T
+	CFLAGS += -Ofast \
+	-flto=4 -fwhole-program -fuse-linker-plugin \
+	-fdata-sections -ffunction-sections -Wl,--gc-sections \
+	-fno-stack-protector -fno-ident -fomit-frame-pointer \
+	-falign-functions=1 -falign-jumps=1 -falign-loops=1 \
+	-fno-unwind-tables -fno-asynchronous-unwind-tables -fno-unroll-loops \
+	-fmerge-all-constants -fno-math-errno \
+	-marm -mtune=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard
+	HAVE_NEON = 1
+	ARCH = arm
+	THREADED_DSP = 1
+	ifeq ($(shell echo `$(CC) -dumpversion` "< 4.9" | bc -l), 1)
+	  CFLAGS += -march=armv7-a
+	else
+	  CFLAGS += -march=armv7ve
+	  # If gcc is 5.0 or later
+	  ifeq ($(shell echo `$(CC) -dumpversion` ">= 5" | bc -l), 1)
+	    LDFLAGS += -static-libgcc -static-libstdc++
+	  endif
+	endif
+#######################################
+
+# ARM
+else ifneq (,$(findstring armv,$(platform)))
+    AR = ${CC_PREFIX}ar
+    CC = ${CC_PREFIX}gcc
+
+    TARGET := $(TARGET_NAME)_libretro.so
+    fpic := -fPIC
+    SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
 
 else ifeq ($(platform), osx)
    TARGET := $(TARGET_NAME)_libretro.dylib
@@ -126,6 +169,15 @@ else
    SHARED += -miphoneos-version-min=5.0
    CC +=  -miphoneos-version-min=5.0
 endif
+else ifeq ($(platform), tvos-arm64)
+
+   TARGET := $(TARGET_NAME)_libretro_tvos.dylib
+   fpic := -fPIC
+   SHARED := -dynamiclib
+ifeq ($(IOSSDK),)
+   IOSSDK := $(shell xcodebuild -version -sdk appletvos Path)
+endif
+
 else ifeq ($(platform), theos_ios)
 DEPLOYMENT_IOSVERSION = 5.0
 TARGET = iphone:latest:$(DEPLOYMENT_IOSVERSION)
@@ -175,15 +227,56 @@ else ifeq ($(platform), vita)
 else ifeq ($(platform), ctr)
    TARGET := $(TARGET_NAME)_libretro_$(platform).a
    CC = $(DEVKITARM)/bin/arm-none-eabi-gcc$(EXE_EXT)
+   CXX = $(DEVKITARM)/bin/arm-none-eabi-g++$(EXE_EXT)
    AR = $(DEVKITARM)/bin/arm-none-eabi-ar$(EXE_EXT)
+   FLAGS += -march=armv6k -mtune=mpcore -mfloat-abi=hard
+   FLAGS += -Wall -mword-relocations
+   FLAGS += -fomit-frame-pointer -ffast-math
+   FLAGS += -DARM11 -D_3DS
    STATIC_LINKING = 1
-   FLAGS += -D_3DS
 
 # Nintendo Switch (libtransistor)
 else ifeq ($(platform), switch)
    TARGET := $(TARGET_NAME)_libretro_$(platform).a
    include $(LIBTRANSISTOR_HOME)/libtransistor.mk
    STATIC_LINKING=1
+
+# Nintendo Switch (libnx)
+else ifeq ($(platform), libnx)
+    include $(DEVKITPRO)/libnx/switch_rules
+    EXT=a
+    TARGET := $(TARGET_NAME)_libretro_$(platform).$(EXT)
+    DEFINES := -DSWITCH=1 -U__linux__ -U__linux -DRARCH_INTERNAL
+    CFLAGS	:=	 $(DEFINES) -g \
+                -O2 \
+				-fPIE -I$(LIBNX)/include/ -ffunction-sections -fdata-sections -ftls-model=local-exec -Wl,--allow-multiple-definition -specs=$(LIBNX)/switch.specs
+    CFLAGS += $(INCDIRS)
+    CFLAGS	+=	$(INCLUDE)  -D__SWITCH__ -DHAVE_LIBNX
+    CXXFLAGS := $(ASFLAGS) $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
+    CFLAGS += -std=gnu11
+    # Static CHD workaround
+    CFLAGS += -Dintfstream_internal=intfstream_internal_core \
+         -Dintfstream_internal_t=intfstream_internal_t_core \
+         -Dintfstream_init=intfstream_init_core \
+         -Dintfstream_resize=intfstream_resize_core \
+         -Dintfstream_open=intfstream_open_core \
+         -Dintfstream_read=intfstream_read_core \
+         -Dintfstream_write=intfstream_write_core \
+         -Dintfstream_gets=intfstream_gets_core \
+         -Dintfstream_getc=intfstream_getc_core \
+         -Dintfstream_seek=intfstream_seek_core \
+         -Dintfstream_rewind=intfstream_rewind_core \
+         -Dintfstream_tell=intfstream_tell_core \
+         -Dintfstream_putc=intfstream_putc_core \
+         -Dintfstream_close=intfstream_close_core \
+         -Dintfstream_get_size=intfstream_get_size_core \
+         -Dintfstream_flush=intfstream_flush_core \
+         -Dintfstream_open_file=intfstream_open_file_core \
+         -Dintfstream_open_memory=intfstream_open_memory_core \
+         -Dintfstream_open_chd_track=intfstream_open_chd_track_core
+    STATIC_LINKING = 1
+    HAVE_CHD = 1
+    HAVE_LIBNX = 1
 
 # Emscripten
 else ifeq ($(platform), emscripten)
@@ -305,13 +398,109 @@ LDFLAGS += -DLL
 CFLAGS += -D_CRT_SECURE_NO_DEPRECATE
 WINDOWS_VERSION=1
 
+# Windows MSVC 2017 all architectures
+else ifneq (,$(findstring windows_msvc2017,$(platform)))
+
+    NO_GCC := 1
+    CFLAGS += -DNOMINMAX
+    CXXFLAGS += -DNOMINMAX
+    WINDOWS_VERSION = 1
+
+	PlatformSuffix = $(subst windows_msvc2017_,,$(platform))
+	ifneq (,$(findstring desktop,$(PlatformSuffix)))
+		WinPartition = desktop
+		MSVC2017CompileFlags = -DWINAPI_FAMILY=WINAPI_FAMILY_DESKTOP_APP -FS
+		LDFLAGS += -MANIFEST -LTCG:incremental -NXCOMPAT -DYNAMICBASE -DEBUG -OPT:REF -INCREMENTAL:NO -SUBSYSTEM:WINDOWS -MANIFESTUAC:"level='asInvoker' uiAccess='false'" -OPT:ICF -ERRORREPORT:PROMPT -NOLOGO -TLBID:1
+		LIBS += kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib
+	else ifneq (,$(findstring uwp,$(PlatformSuffix)))
+		WinPartition = uwp
+		MSVC2017CompileFlags = -DWINAPI_FAMILY=WINAPI_FAMILY_APP -D_WINDLL -D_UNICODE -DUNICODE -D__WRL_NO_DEFAULT_LIB__ -EHsc -FS
+		LDFLAGS += -APPCONTAINER -NXCOMPAT -DYNAMICBASE -MANIFEST:NO -LTCG -OPT:REF -SUBSYSTEM:CONSOLE -MANIFESTUAC:NO -OPT:ICF -ERRORREPORT:PROMPT -NOLOGO -TLBID:1 -DEBUG:FULL -WINMD:NO
+		LIBS += WindowsApp.lib
+	endif
+
+	CFLAGS += $(MSVC2017CompileFlags)
+	CXXFLAGS += $(MSVC2017CompileFlags)
+
+	TargetArchMoniker = $(subst $(WinPartition)_,,$(PlatformSuffix))
+
+	CC  = cl.exe
+	CXX = cl.exe
+	LD = link.exe
+
+	reg_query = $(call filter_out2,$(subst $2,,$(shell reg query "$2" -v "$1" 2>nul)))
+	fix_path = $(subst $(SPACE),\ ,$(subst \,/,$1))
+
+	ProgramFiles86w := $(shell cmd //c "echo %PROGRAMFILES(x86)%")
+	ProgramFiles86 := $(shell cygpath "$(ProgramFiles86w)")
+
+	WindowsSdkDir ?= $(call reg_query,InstallationFolder,HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Microsoft SDKs\Windows\v10.0)
+	WindowsSdkDir ?= $(call reg_query,InstallationFolder,HKEY_CURRENT_USER\SOFTWARE\Wow6432Node\Microsoft\Microsoft SDKs\Windows\v10.0)
+	WindowsSdkDir ?= $(call reg_query,InstallationFolder,HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Microsoft SDKs\Windows\v10.0)
+	WindowsSdkDir ?= $(call reg_query,InstallationFolder,HKEY_CURRENT_USER\SOFTWARE\Microsoft\Microsoft SDKs\Windows\v10.0)
+	WindowsSdkDir := $(WindowsSdkDir)
+
+	WindowsSDKVersion ?= $(firstword $(foreach folder,$(subst $(subst \,/,$(WindowsSdkDir)Include/),,$(wildcard $(call fix_path,$(WindowsSdkDir)Include\*))),$(if $(wildcard $(call fix_path,$(WindowsSdkDir)Include/$(folder)/um/Windows.h)),$(folder),)))$(BACKSLASH)
+	WindowsSDKVersion := $(WindowsSDKVersion)
+
+	VsInstallBuildTools = $(ProgramFiles86)/Microsoft Visual Studio/2017/BuildTools
+	VsInstallEnterprise = $(ProgramFiles86)/Microsoft Visual Studio/2017/Enterprise
+	VsInstallProfessional = $(ProgramFiles86)/Microsoft Visual Studio/2017/Professional
+	VsInstallCommunity = $(ProgramFiles86)/Microsoft Visual Studio/2017/Community
+
+	VsInstallRoot ?= $(shell if [ -d "$(VsInstallBuildTools)" ]; then echo "$(VsInstallBuildTools)"; fi)
+	ifeq ($(VsInstallRoot), )
+		VsInstallRoot = $(shell if [ -d "$(VsInstallEnterprise)" ]; then echo "$(VsInstallEnterprise)"; fi)
+	endif
+	ifeq ($(VsInstallRoot), )
+		VsInstallRoot = $(shell if [ -d "$(VsInstallProfessional)" ]; then echo "$(VsInstallProfessional)"; fi)
+	endif
+	ifeq ($(VsInstallRoot), )
+		VsInstallRoot = $(shell if [ -d "$(VsInstallCommunity)" ]; then echo "$(VsInstallCommunity)"; fi)
+	endif
+	VsInstallRoot := $(VsInstallRoot)
+
+	VcCompilerToolsVer := $(shell cat "$(VsInstallRoot)/VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt" | grep -o '[0-9\.]*')
+	VcCompilerToolsDir := $(VsInstallRoot)/VC/Tools/MSVC/$(VcCompilerToolsVer)
+
+	WindowsSDKSharedIncludeDir := $(shell cygpath -w "$(WindowsSdkDir)\Include\$(WindowsSDKVersion)\shared")
+	WindowsSDKUCRTIncludeDir := $(shell cygpath -w "$(WindowsSdkDir)\Include\$(WindowsSDKVersion)\ucrt")
+	WindowsSDKUMIncludeDir := $(shell cygpath -w "$(WindowsSdkDir)\Include\$(WindowsSDKVersion)\um")
+	WindowsSDKUCRTLibDir := $(shell cygpath -w "$(WindowsSdkDir)\Lib\$(WindowsSDKVersion)\ucrt\$(TargetArchMoniker)")
+	WindowsSDKUMLibDir := $(shell cygpath -w "$(WindowsSdkDir)\Lib\$(WindowsSDKVersion)\um\$(TargetArchMoniker)")
+
+	# For some reason the HostX86 compiler doesn't like compiling for x64
+	# ("no such file" opening a shared library), and vice-versa.
+	# Work around it for now by using the strictly x86 compiler for x86, and x64 for x64.
+	# NOTE: What about ARM?
+	ifneq (,$(findstring x64,$(TargetArchMoniker)))
+		VCCompilerToolsBinDir := $(VcCompilerToolsDir)\bin\HostX64
+	else
+		VCCompilerToolsBinDir := $(VcCompilerToolsDir)\bin\HostX86
+	endif
+
+	PATH := $(shell IFS=$$'\n'; cygpath "$(VCCompilerToolsBinDir)/$(TargetArchMoniker)"):$(PATH)
+	PATH := $(PATH):$(shell IFS=$$'\n'; cygpath "$(VsInstallRoot)/Common7/IDE")
+	INCLUDE := $(shell IFS=$$'\n'; cygpath -w "$(VcCompilerToolsDir)/include")
+	LIB := $(shell IFS=$$'\n'; cygpath -w "$(VcCompilerToolsDir)/lib/$(TargetArchMoniker)")
+	ifneq (,$(findstring uwp,$(PlatformSuffix)))
+		LIB := $(shell IFS=$$'\n'; cygpath -w "$(LIB)/store")
+	endif
+    
+	export INCLUDE := $(INCLUDE);$(WindowsSDKSharedIncludeDir);$(WindowsSDKUCRTIncludeDir);$(WindowsSDKUMIncludeDir)
+	export LIB := $(LIB);$(WindowsSDKUCRTLibDir);$(WindowsSDKUMLibDir)
+	TARGET := $(TARGET_NAME)_libretro.dll
+	PSS_STYLE :=2
+	LDFLAGS += -DLL
+
 # Windows
 else
    TARGET := $(TARGET_NAME)_libretro.dll
-   CC = gcc
+   CC ?= gcc
    SHARED := -shared -Wl,--no-undefined -Wl,--version-script=link.T
    LDFLAGS += -static-libgcc -static-libstdc++ -lwinmm
 WINDOWS_VERSION=1
+	HAVE_CDROM = 1
 endif
 
 CORE_DIR := .
@@ -415,8 +604,10 @@ all: $(TARGET)
 $(TARGET): $(OBJECTS)
 ifeq ($(STATIC_LINKING), 1)
 	$(AR) rcs $@ $(OBJECTS)
+else ifneq (,$(findstring msvc,$(platform)))
+	$(LD) $(fpic) $(LINKOUT)$@ $^ $(LDFLAGS) $(LIBS)
 else
-	$(LD) $(LINKOUT)$@ $^ $(LDFLAGS)
+	$(LD) $(fpic) $(LINKOUT) $@ $^ $(LDFLAGS) $(LIBS)
 endif
 
 %.o: %.c
