@@ -7,7 +7,7 @@
 
 #include <libretro.h>
 
-static uint32_t ACTIVE_DEVICES = 0;
+static uint32_t ACTIVE_DEVICES = 1;
 static unsigned PBUS_DEVICES[LR_INPUT_MAX_DEVICES] = {0};
 
 static

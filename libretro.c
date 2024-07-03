@@ -486,6 +486,8 @@ retro_init(void)
   srand(time(NULL));
   prng16_seed(time(NULL));
   prng32_seed(time(NULL));
+
+  retro_set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
 }
 
 void
