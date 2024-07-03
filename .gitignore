@@ -4,6 +4,7 @@
 *.dylib
 *.exe
 /.project
+/.idea
 /obj/
 /libs/
 *.a
